@@ -123,14 +123,14 @@ app.post('/compound', async (req, res, next) => {
 // Endpoint per verificare una transazione in entrata tramite memo
 app.get('/check-transaction/:memo', async (req, res, next) => {
   const { memo } = req.params;
-  const { blocks } = req.query; // opzionale: numero di blocchi da controllare
+  const { blocks, sender, amount } = req.query; // Aggiungi sender ai query parameters
   
   if (!memo) {
     return res.status(400).json({ error: 'Memo è obbligatoria' });
   }
   
   try {
-    const result = await checkIncomingTransaction(memo, blocks ? parseInt(blocks) : 100);
+    const result = await checkIncomingTransaction(memo, sender, amount, blocks ? parseInt(blocks) : 100);
     res.json(result);
   } catch (err) {
     next(err);

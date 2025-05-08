@@ -33,7 +33,7 @@ const Address_Protocol = "terra1wyud5dzdaawnj2q53xcjgslrfal44dfx2w0ms3"; //Walle
 console.log('Indirizzo del portafoglio:', Address_Account);
 
 // Funzione di utility per la gestione delle transazioni
-async function executeTransaction(msgs, memo, address) {
+async function executeTransaction(msgs, memo) {
   try {
     const fee = await terra.tx.estimateFee(
       [{
@@ -73,7 +73,7 @@ async function executeTransaction(msgs, memo, address) {
 }
 
 // Funzioni operative
-async function sendLuna(toAddress, amount) {
+async function sendLuna(toAddress, amount, memo) {
   const [balance] = await terra.bank.balance(Address_Account);
   const available = balance.get('uluna');
   
@@ -82,7 +82,7 @@ async function sendLuna(toAddress, amount) {
     console.warn('WARNING: Saldo insufficiente per completare la transazione');
     return {
       success: false,
-      message: 'Saldo insufficiente per completare la transazione',
+      message: 'Saldo LUNA insufficiente',
       available: available ? available.amount.toString() : '0',
       requested: amountToSend
     };
@@ -93,7 +93,7 @@ async function sendLuna(toAddress, amount) {
     new Coins({ uluna: amountToSend })
   );
   
-  return executeTransaction([send]);
+  return executeTransaction([send], memo); // Aggiungi la memo qui
 }
 
 async function getStakingRewards() {
@@ -202,86 +202,120 @@ async function compoundRewards(validatorAddress, percentage = 80) {
   return executeTransaction([withdrawMsg, delegateMsg], 'Compound rewards');
 }
 
-async function checkIncomingTransaction(memo, blockCount = 100) {
+async function checkIncomingTransaction(memo, sender, expectedAmount, blockCount = 400) {
   try {
+    const latestBlock = await getLatestBlockHeight();
+    const fromBlock = latestBlock - blockCount;
+
     const events = [
-      `message.sender='${Address_Account}'`,
-      `message.action='/cosmos.bank.v1beta1.MsgSend'`,
       `transfer.recipient='${Address_Protocol}'`
-    ].map(e => `events=${encodeURIComponent(e)}`).join('&');
+    ];
 
-    const url = `https://phoenix-lcd.terra.dev/cosmos/tx/v1beta1/txs?${events}&pagination.limit=20&order_by=ORDER_BY_DESC`;
+    const queryString = events.map(e => `events=${encodeURIComponent(e)}`).join('&');
+    const url = `https://phoenix-lcd.terra.dev/cosmos/tx/v1beta1/txs?${queryString}&pagination.limit=100`;
 
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json'
-      }
+    console.log('🔍 Ricerca transazioni:', {
+      memo,
+      recipient: Address_Protocol,
+      sender: sender || 'qualsiasi',
+      amount: expectedAmount || 'qualsiasi',
+      blocchi: `${fromBlock} - ${latestBlock}`
     });
-    
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
-    }
-    
-    const data = await res.json();
-    console.log('Risposta ricerca tx:', JSON.stringify(data, null, 2));
 
-    if (!data || !data.tx_responses || data.tx_responses.length === 0) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    const data = await res.json();
+
+    if (!data.tx_responses?.length) {
       return {
         success: false,
-        message: `Nessuna transazione trovata per l'indirizzo ${Address_Protocol}`,
-        details: {
-          searchedMemo: memo,
-          recipient: Address_Protocol,
-          totalTransactions: 0
-        }
+        message: 'Nessuna transazione trovata',
+        searchCriteria: { memo, recipient: Address_Protocol, sender, expectedAmount }
       };
     }
 
-    if (data && data.tx_responses && data.tx_responses.length > 0) {
-      // Find transaction with matching memo
-      const tx = data.tx_responses.find(tx => {
-        try {
-          const txData = JSON.parse(tx.tx);
-          return txData.body.memo === memo;
-        } catch (e) {
-          console.error('Errore parsing tx:', e);
-          return false;
-        }
-      });
+    console.log(`📥 Trovate ${data.tx_responses.length} transazioni totali`);
 
-      if (tx) {
-        return {
-          success: true,
-          height: tx.height,
-          txHash: tx.txhash,
-          sender: tx.tx.body.messages[0].from_address,
-          amount: tx.tx.body.messages[0].amount,
-          memo: memo,
-          timestamp: tx.timestamp
-        };
+    const matchingTxs = data.tx_responses.filter(tx => {
+      try {
+        const txBody = tx.tx?.body;
+        const txMsg = txBody?.messages?.[0];
+        const txAmount = txMsg?.amount?.[0]?.amount;
+
+        const memoMatches = txBody?.memo === memo;
+        const senderMatches = !sender || txMsg?.from_address === sender;
+        const amountMatches = !expectedAmount || txAmount === expectedAmount;
+
+        console.log(`📋 Transazione ${tx.txhash.slice(0, 8)}...`, {
+          memo: txBody?.memo || '(vuota)',
+          sender: txMsg?.from_address,
+          amount: txAmount,
+          matches: {
+            memo: memoMatches ? '✅' : '❌',
+            sender: senderMatches ? '✅' : '❌',
+            amount: amountMatches ? '✅' : '❌'
+          }
+        });
+
+        return memoMatches && senderMatches && amountMatches;
+      } catch (e) {
+        console.error('❌ Errore parsing transazione:', e);
+        return false;
       }
+    });
+
+    if (matchingTxs.length > 0) {
+      console.log(`✅ Trovate ${matchingTxs.length} transazioni corrispondenti`);
+      return {
+        success: true,
+        count: matchingTxs.length,
+        transactions: matchingTxs.map(tx => ({
+          hash: tx.txhash,
+          height: tx.height,
+          timestamp: tx.timestamp,
+          memo: tx.tx?.body?.memo,
+          sender: tx.tx?.body?.messages?.[0]?.from_address,
+          amount: tx.tx?.body?.messages?.[0]?.amount?.[0],
+          gasUsed: tx.gas_used,
+          gasWanted: tx.gas_wanted
+        }))
+      };
     }
 
     return {
       success: false,
-      message: 'Nessuna transazione trovata con la memo specificata'
+      message: 'Nessuna transazione corrispondente ai criteri',
+      searchCriteria: {
+        memo,
+        recipient: Address_Protocol,
+        sender,
+        expectedAmount,
+        blockRange: `${fromBlock}-${latestBlock}`
+      }
     };
+
   } catch (err) {
-    console.error('Errore nella ricerca della transazione:', err);
+    console.error('🔥 Errore:', err);
     throw err;
   }
 }
 
 async function getLatestBlockHeight() {
-  const res = await fetch('https://phoenix-lcd.terra.dev/blocks/latest');
-  const data = await res.json();
-  console.log('Risposta blocco:', JSON.stringify(data, null, 2));
+  try {
+    const res = await fetch('https://phoenix-lcd.terra.dev/blocks/latest');
+    const data = await res.json();
+    
+    if (data?.block?.header?.height) {
+      const height = parseInt(data.block.header.height);
+      console.log('Ultimo blocco:', height);
+      return height;
+    }
 
-  if (data && data.block && data.block.header && data.block.header.height) {
-    return parseInt(data.block.header.height);
+    throw new Error('Struttura del blocco non valida');
+  } catch (err) {
+    console.error('Errore nel recupero del blocco:', err);
+    throw new Error('Impossibile ottenere l\'altezza del blocco: ' + err.message);
   }
-  throw new Error('Impossibile ottenere il blocco più recente: struttura dati inattesa');
 }
 
 module.exports = {
