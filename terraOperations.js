@@ -124,7 +124,7 @@ async function getStakingRewards(walletProtocol) {
     }
   }
   
-  return responseStrings.join('\n');
+  return responseStrings.join('-');
 }
 
 async function withdrawRewards(validatorAddress) {

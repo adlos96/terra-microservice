@@ -41,14 +41,14 @@ app.post('/send', async (req, res, next) => {
 
 // Endpoint per leggere le ricompense di staking
 app.get('/staking/rewards', async (req, res, next) => {
-  const { walletProtocol } = req.body;
+  const { walletProtocol } = req.query;
   if (!walletProtocol) 
     return res.status(400).json({ error: 'Obbligatorio fornire un wallet' });
   
   try {
     const rewards = await getStakingRewards(walletProtocol);
-    res.set('Content-Type', 'text/plain');
-    res.send(rewards);
+    res.set('Content-Type', 'application/json');
+    res.json(rewards);
   } catch (err) {
     next(err);
   }
