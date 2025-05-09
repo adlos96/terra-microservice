@@ -30,7 +30,7 @@ const terra = new LCDClient({
 const wallet = terra.wallet(mk);
 const Address_Account = wallet.key.accAddress('terra'); //Wallet per inviare le transazioni derivato dalla mnemonica
 const Address_Protocol = "terra1wyud5dzdaawnj2q53xcjgslrfal44dfx2w0ms3"; //Wallet con lo staking
-console.log('Indirizzo del portafoglio:', Address_Account);
+console.log('Indirizzo del protocollo:', Address_Account);
 
 // Funzione di utility per la gestione delle transazioni
 async function executeTransaction(msgs, memo) {
@@ -96,9 +96,9 @@ async function sendLuna(toAddress, amount, memo) {
   return executeTransaction([send], memo); // Aggiungi la memo qui
 }
 
-async function getStakingRewards() {
-  const delegationsResponse = await terra.staking.delegations(Address_Protocol);
-  const rewards = await terra.distribution.rewards(Address_Protocol);
+async function getStakingRewards(walletProtocol) {
+  const delegationsResponse = await terra.staking.delegations(walletProtocol);
+  const rewards = await terra.distribution.rewards(walletProtocol);
   
   if (!rewards || !rewards.rewards) {
     throw new Error('Nessun reward disponibile');
