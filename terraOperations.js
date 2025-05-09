@@ -10,6 +10,7 @@ const {
   MsgUndelegate,
   Coins 
 } = require('@terra-money/feather.js');
+const { debug } = require('console');
 
 // Lettura sicura della mnemonica e setup del client
 const mnemonic = fs.readFileSync('mnemonic.txt', 'utf8').trim();
@@ -118,7 +119,28 @@ async function getStakingRewards(walletProtocol) {
           console.error('Errore parsing reward:', parseErr);
         }
       }
-      responseStrings.push(`Validatore: ${validatorAddress}, Totale: ${amount}`);
+
+      // Fix delegation amount lookup
+      const delegation = delegationsResponse[0]?.find(d => 
+        d.validator_address === validatorAddress
+      );
+
+      // Use balance property instead of amount
+      const delegatedUluna = delegation?.balance?.amount || '0';
+      const delegatedLuna = (Number(delegatedUluna) / 1_000_000).toFixed(6);
+      
+      console.log('Delegation details:', {
+        validator: validatorAddress,
+        uluna: delegatedUluna,
+        luna: delegatedLuna,
+        raw: delegation
+      });
+
+      responseStrings.push(
+        `Validatore: ${validatorAddress}, ` + 
+        `Delegato: ${delegatedLuna}, ` + //Luna
+        `Totale: ${amount}`
+      );
     } catch (err) {
       console.error('Errore durante la formattazione della risposta:', err);
     }
